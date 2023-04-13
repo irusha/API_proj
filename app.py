@@ -1,4 +1,5 @@
 import os
+import shutil
 
 from flask import Flask, render_template, request, jsonify
 import cv2
@@ -34,6 +35,8 @@ def generate_thumbnail(file, position, destination_folder, destination_file):
     make_folder(destination_folder)
     vidcap = cv2.VideoCapture(file)
 
+    print("Started generating the thumbnail")
+
     width = int(vidcap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(vidcap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
@@ -50,6 +53,8 @@ def generate_thumbnail(file, position, destination_folder, destination_file):
     im_ar = cv2.resize(im_ar, (width, height), 0, 0, cv2.INTER_LINEAR)
     cv2.imwrite(destination_folder + destination_file, im_ar)
 
+    print("Successfully generated", destination_folder + destination_file)
+
 
 def combine_videos(clip_paths, destination, file_name):
     clips = [VideoFileClip(c) for c in clip_paths]
@@ -61,32 +66,64 @@ def combine_videos(clip_paths, destination, file_name):
 
 
 def generate_preview(file, duration, destination_folder, destination_file):
-    make_folder("static/temp")
+    dirpath = destination_folder + "temp"
+    make_folder(dirpath)
+    make_folder(destination_folder + "preview")
 
     for i in range(10):
         fraction = i / 10
-        trim_video(file, 'static/temp/edited_%s.mp4' % i, duration * fraction, (duration * fraction) + 1)
+        trim_video(file, destination_folder + 'temp/edited_%s.mp4' % i, duration * fraction, (duration * fraction) + 1)
 
     combine_videos(
-        ("static/temp/edited_%s.mp4" % s for s in range(10)),
-        destination_folder, destination_file)
+        (destination_folder + "temp/edited_%s.mp4" % s for s in range(10)),
+        destination_folder + "preview/", destination_file)
+
+    if os.path.exists(dirpath) and os.path.isdir(dirpath):
+        shutil.rmtree(dirpath)
 
 
 @app.route('/', methods=['GET', 'POST'])
 def upload_file():
     if request.method == "POST":
         uploaded_files = request.files.getlist("file")
-        for curr_file in uploaded_files:
-            _file = "static/videos/" + secure_filename(curr_file.filename)
-            make_folder("static/videos")
-            curr_file.save(_file)
-            generate_thumbnail(_file, 0.2, "static/thumbnails/", secure_filename(curr_file.filename) + ".jpg")
 
-            duration = video_duration(_file)
-            generate_preview(_file, duration, "static/previews/", secure_filename(curr_file.filename) + "preview.mp4")
+        if len(uploaded_files) == 0:
+            return "InvalidRequest"
+        elif uploaded_files[0].content_type is None:
+            return "NoFilesFound"
+
+        failed_files = {}
+
+        for curr_file in uploaded_files:
+            file_name = secure_filename(curr_file.filename)
+            _file = "static/%s/video/" % file_name + file_name
+
+            file_type = curr_file.content_type.split('/')[0]
+            print(file_type)
+
+            if file_type != "video":
+                failed_files[file_name] = "InvalidType"
+                if os.path.exists("static/" + file_name) and os.path.isdir("static/" + file_name):
+                    shutil.rmtree("static/" + file_name)
+                continue
+
+            make_folder("static/%s/video/" % file_name)
+            curr_file.save(_file)
+
+            try:
+                generate_thumbnail(_file, 0.2, "static/%s/thumbnail/" % file_name, file_name + ".jpg")
+                duration = video_duration(_file)
+                generate_preview(_file, duration, "static/%s/" % file_name,
+                                 file_name + "preview.mp4")
+
+            except:
+                failed_files[file_name] = "ParseError"
+                if os.path.exists("static/" + file_name) and os.path.isdir("static/" + file_name):
+                    shutil.rmtree("static/" + file_name)
 
         return jsonify({
-            "url": request.url + "static/out.mp4"
+            "url": request.url + "static/out.mp4",
+            "failed_files": failed_files
         })
 
     else:

@@ -75,18 +75,18 @@ def generate_preview(file, duration, destination_folder, destination_file):
 @app.route('/', methods=['GET', 'POST'])
 def upload_file():
     if request.method == "POST":
-        uploaded_file = request.files['file']
-        make_folder("static/videos")
-        _file = "static/videos/" + secure_filename(uploaded_file.filename)
-        uploaded_file.save(_file)
-        duration = video_duration(_file)
+        uploaded_files = request.files.getlist("file")
+        for curr_file in uploaded_files:
+            _file = "static/videos/" + secure_filename(curr_file.filename)
+            make_folder("static/videos")
+            curr_file.save(_file)
+            generate_thumbnail(_file, 0.2, "static/thumbnails/", secure_filename(curr_file.filename) + ".jpg")
 
-        generate_thumbnail(_file, 0.2, "static/thumbnails/", "thumbnail55.jpg")
-        generate_preview(_file, duration, "static/previews/", "preview.mp4")
+            duration = video_duration(_file)
+            generate_preview(_file, duration, "static/previews/", secure_filename(curr_file.filename) + "preview.mp4")
 
         return jsonify({
-            "url": request.url + "static/out.mp4",
-            "duration": duration
+            "url": request.url + "static/out.mp4"
         })
 
     else:
